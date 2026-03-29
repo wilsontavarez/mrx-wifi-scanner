@@ -9,3 +9,11 @@ git clone https://github.com/wilsontavarez/mrx-wifi-scanner.git
 cd mrx-wifi-scanner
 chmod +x mrx_wifi.sh
 sudo cp mrx_wifi.sh /usr/local/bin/mrx_wifi
+
+## 📸 Screenshots
+
+### Menu
+![Menu](mrx_wifi.png)
+
+### Scan
+![Scan](mrx_wifi2.png)
