@@ -1,0 +1,202 @@
+#!/bin/bash
+# 🕷️ MRX WIFI LIVE SCANNER v8 🕷️
+# Interface selector + live scanner (English UI)
+# Ctrl+C -> clean exit | Ctrl+Z -> pause/resume
+# Released: Friday, October 24, 2025
+
+set -u
+
+INTERFACE="${1:-}"
+PAUSED=false
+interfaces=()
+
+detect_wifi_interfaces() {
+    interfaces=()
+
+    if command -v iw >/dev/null 2>&1; then
+        while read -r line; do
+            if [[ $line =~ ^[[:space:]]*Interface[[:space:]]+([[:alnum:]_:-]+) ]]; then
+                interfaces+=("${BASH_REMATCH[1]}")
+            fi
+        done < <(iw dev 2>/dev/null)
+    fi
+
+    if [ ${#interfaces[@]} -eq 0 ]; then
+        while read -r name rest; do
+            if [[ $name =~ ^(wlan|wl|wifi|ath|rt)[a-zA-Z0-9:_-]*$ ]]; then
+                interfaces+=("$name")
+            fi
+        done < <(ip -o link show 2>/dev/null | awk -F': ' '{print $2}')
+    fi
+}
+
+show_interface_menu() {
+    clear
+    echo "🕷️ MRX WIFI LIVE SCANNER v8 🕷️ | Released: Friday, October 24, 2025"
+    echo "Select the Wi-Fi interface to use for scanning."
+    echo
+    if [ ${#interfaces[@]} -eq 0 ]; then
+        echo "⚠️  No wireless interfaces detected."
+        echo "Plug in your Wi-Fi adapter or check your drivers."
+        echo
+        echo "Press [r] to retry or [q] to quit."
+        return
+    fi
+
+    echo "Available Wi-Fi interfaces:"
+    for idx in "${!interfaces[@]}"; do
+        num=$((idx+1))
+        printf "  %2d) %s\n" "$num" "${interfaces[$idx]}"
+    done
+    echo
+    echo "Choose a number and press Enter. (r = refresh list, q = quit)"
+}
+
+cleanup_and_exit() {
+    stty sane 2>/dev/null || true
+    tput cnorm 2>/dev/null || true
+    tput sgr0 2>/dev/null || true
+    clear
+    echo "🕷️ MRX WIFI LIVE SCANNER stopped successfully."
+    exit 0
+}
+
+draw_header() {
+    tput clear
+    echo "🕷️ MRX WIFI LIVE SCANNER v8 🕷️ | Released: Friday, October 24, 2025"
+    echo "Developed by MrX | Interface: $INTERFACE"
+    echo
+    echo "💡 Ctrl+C = clean exit | Ctrl+Z = pause / resume"
+    echo
+    printf "%-20s %-28s %-4s %-8s %-8s %-22s %-10s %-12s\n" \
+        "BSSID(MAC)" "ESSID" "CH" "FREQ" "SIGNAL" "BARS" "ENCRYPTION" "QUALITY"
+    printf "%-20s %-28s %-4s %-8s %-8s %-22s %-10s %-12s\n" \
+        "--------------------" "----------------------------" "----" "--------" "--------" "----------------------" "----------" "------------"
+}
+
+trap 'cleanup_and_exit' INT
+
+trap '
+if [ "$PAUSED" = false ]; then
+    PAUSED=true
+    clear
+    echo "⏸️  Scanning paused. Press [Ctrl+Z] or [Enter] to resume..."
+else
+    PAUSED=false
+    draw_header
+fi
+' TSTP
+
+if [ -z "$INTERFACE" ]; then
+    while true; do
+        detect_wifi_interfaces
+        show_interface_menu
+        read -r -p "> " choice
+
+        case "$choice" in
+            q|Q)
+                cleanup_and_exit
+                ;;
+            r|R|"")
+                continue
+                ;;
+            *)
+                if [[ "$choice" =~ ^[0-9]+$ ]]; then
+                    idx=$((choice-1))
+                    if [ $idx -ge 0 ] && [ $idx -lt ${#interfaces[@]} ]; then
+                        INTERFACE="${interfaces[$idx]}"
+                        break
+                    else
+                        echo "Invalid number. Press Enter to continue..."
+                        read -r
+                    fi
+                else
+                    echo "Invalid input. Press Enter to continue..."
+                    read -r
+                fi
+                ;;
+        esac
+    done
+fi
+
+if ! ip link show "$INTERFACE" >/dev/null 2>&1; then
+    echo "Interface '$INTERFACE' not found. Exiting."
+    exit 1
+fi
+
+tput civis
+draw_header
+
+while true; do
+    if [ "$PAUSED" = true ]; then
+        read -rsn1
+        PAUSED=false
+        draw_header
+    fi
+
+    tput sc
+    tput cup 7 0
+
+    sudo iwlist "$INTERFACE" scan 2>/dev/null | awk '
+    BEGIN { FS=":" }
+
+    /Cell/ {
+        match($0, /Address: ([0-9A-Fa-f:]+)/, mac)
+        if (mac[1] != "") bssid = mac[1]
+    }
+
+    /Frequency:/ {
+        freq=$2
+        sub(/ GHz.*/,"",freq)
+        if (match($0, /\(Channel ([0-9]+)\)/, c)) ch=c[1]
+    }
+
+    /Channel:/ {
+        ch=$2
+        gsub(/[^0-9]/, "", ch)
+    }
+
+    /Encryption key:/ { if ($3=="on") enc="WEP"; else enc="OPEN" }
+    /WPA Version/ { enc="WPA" }
+    /WPA2 Version/ { enc="WPA2" }
+
+    /ESSID:/ {
+        essid=$2
+        gsub(/"/,"",essid)
+        if(essid=="") essid="[HIDDEN]"
+    }
+
+    /Signal level=/ {
+        match($0,/Signal level=-[0-9]+/,m)
+        if(m[0] != "") {
+            signal = m[0]
+            gsub(/Signal level=/,"",signal)
+            dBm = signal + 0
+        } else {
+            dBm = -100
+        }
+
+        pct = (dBm + 100) * (100/70)
+        if(pct < 0) pct = 0
+        if(pct > 100) pct = 100
+
+        bars = int(pct/5)
+        bar = ""
+        for(i=0;i<bars;i++) bar = bar "█"
+        for(i=bars;i<20;i++) bar = bar "░"
+
+        if(dBm > -50) quality="Excellent"
+        else if(dBm > -65) quality="Good"
+        else if(dBm > -75) quality="Fair"
+        else if(dBm > -85) quality="Weak"
+        else quality="Very Weak"
+
+        printf("%-20s %-28s %-4s %-8s %4sdBm %-22s %-10s %-12s\n",
+            bssid, essid, ch, freq, dBm, bar, enc, quality)
+    }
+    '  # 👈 cierre correcto del bloque awk, sin errores
+
+    echo -e "\033[0J"
+    tput rc
+    sleep 3
+done
