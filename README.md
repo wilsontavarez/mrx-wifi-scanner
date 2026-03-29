@@ -31,5 +31,6 @@ Live Wi-Fi scanner built in Bash for Linux systems.
 ```bash
 git clone https://github.com/wilsontavarez/mrx-wifi-scanner.git
 cd mrx-wifi-scanner
-chmod +x mrx_wifi.sh
-sudo cp mrx_wifi.sh /usr/local/bin/mrx_wifi
+chmod +x mrx_wifi
+sudo cp mrx_wifi /usr/local/bin/mrx_wifi
+mrx_wifi
